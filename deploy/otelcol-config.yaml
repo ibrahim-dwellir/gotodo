@@ -1,0 +1,65 @@
+# OpenTelemetry Collector (contrib distribution) config: pull pprof profiles
+# from gotodo's ops port and push them to Pyroscope over OTLP.
+#
+# Run with the profiles feature gate enabled (profiles are alpha):
+#   otelcol-contrib --config deploy/otelcol-config.yaml --feature-gates=service.profilesSupport
+#
+# Tested end to end with otelcol-contrib v0.165.0 and Pyroscope v2.4.3: CPU,
+# memory, goroutine, mutex and block profiles arrive under service_name=gotodo.
+#
+# Notes
+# - The pprof receiver ships only in the contrib distribution and is alpha.
+# - One receiver instance pulls one URL, so there is one per profile type.
+# - Heap, mutex and block use gotodo's godeltaprof endpoints (delta_*): they
+#   report only what changed since the previous pull. The plain /heap,
+#   /mutex and /block endpoints are cumulative since process start, which
+#   Pyroscope would show as ever-growing totals when pushed as-is.
+# - In Pyroscope, heap profiles from this path appear as the "space" profile
+#   type (space:alloc_space:..., space:inuse_space:...), not "memory".
+
+receivers:
+  pprof/cpu:
+    remote:
+      # CPU is sampled for `seconds`; keep it below collection_interval.
+      endpoint: http://localhost:6060/debug/pprof/profile?seconds=10
+      timeout: 20s
+      collection_interval: 15s
+      initial_delay: 5s
+  pprof/heap:
+    remote:
+      endpoint: http://localhost:6060/debug/pprof/delta_heap
+      collection_interval: 15s
+  pprof/mutex:
+    remote:
+      endpoint: http://localhost:6060/debug/pprof/delta_mutex
+      collection_interval: 15s
+  pprof/block:
+    remote:
+      endpoint: http://localhost:6060/debug/pprof/delta_block
+      collection_interval: 15s
+  pprof/goroutine:
+    remote:
+      endpoint: http://localhost:6060/debug/pprof/goroutine
+      collection_interval: 15s
+
+processors:
+  # The pprof receiver sets no service.name, so without this Pyroscope files
+  # everything under "unknown_service".
+  resource/service:
+    attributes:
+      - key: service.name
+        value: gotodo
+        action: upsert
+
+exporters:
+  otlp_grpc/pyroscope:
+    endpoint: localhost:4040 # Pyroscope accepts OTLP profiles on its HTTP/gRPC port
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    profiles:
+      receivers: [pprof/cpu, pprof/heap, pprof/mutex, pprof/block, pprof/goroutine]
+      processors: [resource/service]
+      exporters: [otlp_grpc/pyroscope]

@@ -1,0 +1,130 @@
+// Grafana Alloy config for GoTodo.
+//
+//   gotodo metrics  (localhost:6060/metrics)        ─┐
+//   host metrics    (built-in node exporter)        ─┴─> Prometheus  localhost:9090
+//   gotodo profiles (localhost:6060/debug/pprof/*)  ───> Pyroscope   localhost:4040
+//
+// Prometheus must accept remote write: start it with
+//   --web.enable-remote-write-receiver
+//
+// Everything is collected every 1m.
+
+// ---------------------------------------------------------------------------
+// Metrics -> Prometheus
+// ---------------------------------------------------------------------------
+
+prometheus.remote_write "local" {
+  endpoint {
+    url = "http://localhost:9090/api/v1/write"
+  }
+}
+
+// GoTodo application metrics (HTTP, auth, Go runtime, process, DB pool).
+prometheus.scrape "gotodo" {
+  targets = [{
+    "__address__" = "localhost:6060",
+    "instance"    = constants.hostname,
+  }]
+  job_name        = "gotodo"
+  metrics_path    = "/metrics"
+  scrape_interval = "1m"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.local.receiver]
+}
+
+// Host metrics (CPU, memory, disk, filesystem, network, load, ...).
+prometheus.exporter.unix "host" { }
+
+// The exporter's targets point at Alloy itself; label them with the real host.
+discovery.relabel "host" {
+  targets = prometheus.exporter.unix.host.targets
+
+  rule {
+    target_label = "instance"
+    replacement  = constants.hostname
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "integrations/node_exporter"
+  }
+}
+
+prometheus.scrape "host" {
+  targets         = discovery.relabel.host.output
+  job_name        = "integrations/node_exporter"
+  scrape_interval = "1m"
+  scrape_timeout  = "10s"
+  forward_to      = [prometheus.remote_write.local.receiver]
+}
+
+// ---------------------------------------------------------------------------
+// Profiles -> Pyroscope
+// ---------------------------------------------------------------------------
+
+pyroscope.write "local" {
+  endpoint {
+    url = "http://localhost:4040"
+  }
+}
+
+// Alloy >= 1.18 tags every scraped profile with otel.scope.name and
+// otel.scope.version. Pyroscope versions that only accept classic label names
+// (no dots) reject the whole push with "invalid label name 'otel.scope.name'",
+// so drop them before writing.
+pyroscope.relabel "drop_scope" {
+  forward_to = [pyroscope.write.local.receiver]
+
+  rule {
+    action = "labeldrop"
+    regex  = "otel\\.scope\\..+"
+  }
+}
+
+pyroscope.scrape "gotodo" {
+  targets = [{
+    "__address__"  = "localhost:6060",
+    "service_name" = "gotodo",
+    "instance"     = constants.hostname,
+  }]
+  job_name        = "gotodo"
+  scrape_interval = "1m"
+  // CPU is sampled for this long in each 1m interval (max scrape_interval - 1s).
+  delta_profiling_duration = "55s"
+  forward_to               = [pyroscope.relabel.drop_scope.receiver]
+
+  profiling_config {
+    // CPU: /debug/pprof/profile?seconds=55
+    profile.process_cpu {
+      enabled = true
+    }
+
+    // GoTodo serves godeltaprof endpoints, so the target computes the
+    // deltas. Use them and turn off the plain cumulative profiles, or every
+    // memory/mutex/block profile would be ingested twice.
+    profile.godeltaprof_memory {
+      enabled = true
+    }
+    profile.memory {
+      enabled = false
+    }
+
+    profile.godeltaprof_mutex {
+      enabled = true
+    }
+    profile.mutex {
+      enabled = false
+    }
+
+    profile.godeltaprof_block {
+      enabled = true
+    }
+    profile.block {
+      enabled = false
+    }
+
+    profile.goroutine {
+      enabled = true
+    }
+  }
+}

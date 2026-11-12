@@ -1,0 +1,7 @@
+*.db
+*.db-shm
+*.db-wal
+/api
+/ui/ui
+/gotodo
+/dist/

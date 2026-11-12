@@ -1,0 +1,9 @@
+# Minimal Prometheus config scraping gotodo's ops port.
+#   prometheus --config.file=deploy/prometheus.yml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: gotodo
+    static_configs:
+      - targets: ["localhost:6060"] # serves /metrics

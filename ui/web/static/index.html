@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GoTodo</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  <script defer src="/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+  <style>[x-cloak] { display: none !important; }</style>
+</head>
+<body class="h-full bg-slate-100 text-slate-800 antialiased">
+<div x-data="app" x-cloak class="min-h-full">
+
+  <!-- ───────────── Auth screen ───────────── -->
+  <template x-if="!token">
+    <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-4">
+      <div class="w-full max-w-md">
+        <div class="text-center mb-8 text-white">
+          <div class="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15 backdrop-blur text-3xl mb-3">✓</div>
+          <h1 class="text-3xl font-bold tracking-tight">GoTodo</h1>
+          <p class="text-indigo-100 mt-1">Plan it. Track it. Ship it.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-2xl p-8">
+          <div class="flex rounded-lg bg-slate-100 p-1 mb-6">
+            <button type="button" @click="authMode = 'login'; authError = ''"
+                    :class="authMode === 'login' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'"
+                    class="flex-1 rounded-md py-2 text-sm font-medium transition">Log in</button>
+            <button type="button" @click="authMode = 'register'; authError = ''"
+                    :class="authMode === 'register' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'"
+                    class="flex-1 rounded-md py-2 text-sm font-medium transition">Create account</button>
+          </div>
+
+          <form @submit.prevent="authMode === 'login' ? login() : register()" class="space-y-4">
+            <template x-if="authMode === 'register'">
+              <div class="grid grid-cols-2 gap-3">
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">First name</span>
+                  <input x-model="authForm.first_name" required autocomplete="given-name"
+                         class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </label>
+                <label class="block">
+                  <span class="text-sm font-medium text-slate-700">Last name</span>
+                  <input x-model="authForm.last_name" required autocomplete="family-name"
+                         class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+                </label>
+              </div>
+            </template>
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">Email</span>
+              <input type="email" x-model="authForm.email" required autocomplete="email"
+                     class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            </label>
+            <label class="block">
+              <span class="text-sm font-medium text-slate-700">Password</span>
+              <input type="password" x-model="authForm.password" required
+                     :minlength="authMode === 'register' ? 8 : null"
+                     :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
+                     class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+              <span x-show="authMode === 'register'" class="text-xs text-slate-500">At least 8 characters.</span>
+            </label>
+
+            <p x-show="authError" x-text="authError" class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700"></p>
+
+            <button type="submit" :disabled="busy"
+                    class="w-full rounded-lg bg-indigo-600 py-2.5 font-semibold text-white shadow hover:bg-indigo-700 disabled:opacity-60 transition">
+              <span x-text="busy ? 'Please wait…' : (authMode === 'login' ? 'Log in' : 'Create account')"></span>
+            </button>
+          </form>
+        </div>
+        <p class="text-center text-indigo-100 text-sm mt-6">
+          API docs: <a href="/swagger/index.html" target="_blank" class="underline hover:text-white">Swagger UI</a>
+        </p>
+      </div>
+    </div>
+  </template>
+
+  <!-- ───────────── App screen ───────────── -->
+  <template x-if="token">
+    <div>
+      <header class="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div class="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-indigo-600 to-fuchsia-600 text-white flex items-center justify-center font-bold">✓</div>
+            <span class="text-lg font-bold tracking-tight">GoTodo</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <a href="/swagger/index.html" target="_blank" class="hidden sm:inline text-sm text-slate-500 hover:text-indigo-600">API docs</a>
+            <button type="button" @click="openProfile()" class="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 hover:bg-slate-100 transition">
+              <span class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-semibold" x-text="initials()"></span>
+              <span class="hidden sm:block text-left leading-tight">
+                <span class="block text-sm font-medium" x-text="user ? user.first_name + ' ' + user.last_name : ''"></span>
+                <span class="block text-xs text-slate-500" x-text="user && user.last_login_at ? 'Last login ' + fromNow(user.last_login_at) : ''"></span>
+              </span>
+            </button>
+            <button type="button" @click="logout()" class="text-sm font-medium text-slate-500 hover:text-rose-600">Log out</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="max-w-5xl mx-auto px-4 py-8">
+        <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+          <div>
+            <h2 class="text-2xl font-bold tracking-tight">Hi <span x-text="user ? user.first_name : ''"></span> 👋</h2>
+            <p class="text-slate-500" x-text="summary()"></p>
+          </div>
+          <button type="button" @click="openCreate()"
+                  class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 font-semibold text-white shadow hover:bg-indigo-700 transition">
+            <span class="text-xl leading-none">+</span> New todo
+          </button>
+        </div>
+
+        <!-- Status summary cards double as filters -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <template x-for="s in statuses" :key="s.value">
+            <button type="button" @click="filter = filter === s.value ? 'all' : s.value"
+                    :class="filter === s.value ? 'ring-2 ' + s.ring : 'hover:shadow-md'"
+                    class="text-left rounded-xl bg-white p-4 shadow-sm border border-slate-200 transition">
+              <div class="flex items-center gap-2 text-sm text-slate-500">
+                <span class="h-2.5 w-2.5 rounded-full" :class="s.dot"></span>
+                <span x-text="s.label"></span>
+              </div>
+              <div class="mt-1 text-3xl font-bold" x-text="countBy(s.value)"></div>
+            </button>
+          </template>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-3 mb-4">
+          <div class="flex flex-wrap gap-2">
+            <button type="button" @click="filter = 'all'"
+                    :class="filter === 'all' ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+                    class="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium transition">
+              All <span class="opacity-60" x-text="todos.length"></span>
+            </button>
+            <template x-for="s in statuses" :key="'chip-' + s.value">
+              <button type="button" @click="filter = s.value"
+                      :class="filter === s.value ? 'bg-slate-900 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'"
+                      class="rounded-full border border-slate-200 px-3 py-1.5 text-sm font-medium transition" x-text="s.label"></button>
+            </template>
+          </div>
+          <div class="sm:ml-auto flex gap-2">
+            <input type="search" x-model="search" placeholder="Search…"
+                   class="w-full sm:w-56 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+            <select x-model="sort" class="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-indigo-500">
+              <option value="created">Newest</option>
+              <option value="due">Due date</option>
+              <option value="updated">Recently updated</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Loading / empty states -->
+        <div x-show="loading" class="text-center py-16 text-slate-400">Loading todos…</div>
+        <div x-show="!loading && visibleTodos().length === 0" class="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-300">
+          <div class="text-5xl mb-3">🗒️</div>
+          <p class="font-medium" x-text="todos.length === 0 ? 'No todos yet' : 'Nothing matches this filter'"></p>
+          <p class="text-slate-500 text-sm mt-1" x-show="todos.length === 0">Create your first one to get started.</p>
+        </div>
+
+        <!-- Todo list -->
+        <ul class="space-y-3" x-show="!loading">
+          <template x-for="todo in visibleTodos()" :key="todo.id">
+            <li class="group bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition p-4 flex gap-4"
+                :class="todo.status === 'completed' ? 'opacity-75' : ''">
+              <button type="button" @click="toggleComplete(todo)" :title="todo.status === 'completed' ? 'Mark as not started' : 'Mark as completed'"
+                      :class="todo.status === 'completed' ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 hover:border-emerald-500 text-transparent hover:text-emerald-500'"
+                      class="mt-0.5 h-6 w-6 shrink-0 rounded-full border-2 flex items-center justify-center text-sm transition">✓</button>
+
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="font-semibold break-words" :class="todo.status === 'completed' ? 'line-through text-slate-500' : ''" x-text="todo.title"></h3>
+                  <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="statusMeta(todo.status).badge" x-text="statusMeta(todo.status).label"></span>
+                  <span x-show="todo.due_date" class="rounded-full px-2 py-0.5 text-xs font-medium"
+                        :class="dueClass(todo)" x-text="dueLabel(todo)"></span>
+                </div>
+                <p x-show="todo.description" class="mt-1 text-sm text-slate-600 whitespace-pre-line break-words" x-text="todo.description"></p>
+                <p class="mt-2 text-xs text-slate-400">
+                  Created <span x-text="fromNow(todo.created_at)" :title="fullDate(todo.created_at)"></span>
+                  <template x-if="todo.updated_at !== todo.created_at">
+                    <span> · Updated <span x-text="fromNow(todo.updated_at)" :title="fullDate(todo.updated_at)"></span></span>
+                  </template>
+                </p>
+              </div>
+
+              <div class="flex flex-col sm:flex-row items-end sm:items-start gap-2 shrink-0">
+                <select :value="todo.status" @change="setStatus(todo, $event.target.value)"
+                        class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs outline-none focus:border-indigo-500">
+                  <template x-for="s in statuses" :key="'opt-' + todo.id + s.value">
+                    <option :value="s.value" x-text="s.label" :selected="s.value === todo.status"></option>
+                  </template>
+                </select>
+                <div class="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                  <button type="button" @click="openEdit(todo)" class="rounded-lg px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100">Edit</button>
+                  <button type="button" @click="confirmDelete = todo" class="rounded-lg px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
+                </div>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </main>
+    </div>
+  </template>
+
+  <!-- ───────────── Create / edit modal ───────────── -->
+  <div x-show="editor.open" x-transition.opacity class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="editor.open = false">
+    <form @submit.prevent="saveTodo()" @click.outside="editor.open = false"
+          class="w-full max-w-lg rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+      <h3 class="text-lg font-bold" x-text="editor.id ? 'Edit todo' : 'New todo'"></h3>
+      <label class="block">
+        <span class="text-sm font-medium text-slate-700">Title</span>
+        <input x-model="editor.title" required maxlength="200" x-ref="titleInput"
+               class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium text-slate-700">Description</span>
+        <textarea x-model="editor.description" rows="4" maxlength="5000"
+                  class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none"></textarea>
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block">
+          <span class="text-sm font-medium text-slate-700">Status</span>
+          <select x-model="editor.status" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 bg-white outline-none focus:border-indigo-500">
+            <template x-for="s in statuses" :key="'ed-' + s.value">
+              <option :value="s.value" x-text="s.label" :selected="s.value === editor.status"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-slate-700">Due date</span>
+          <input type="date" x-model="editor.due_date"
+                 class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500">
+        </label>
+      </div>
+      <p x-show="editor.error" x-text="editor.error" class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700"></p>
+      <div class="flex justify-end gap-2 pt-2">
+        <button type="button" @click="editor.open = false" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+        <button type="submit" :disabled="busy" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                x-text="editor.id ? 'Save changes' : 'Create todo'"></button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ───────────── Delete confirmation ───────────── -->
+  <div x-show="confirmDelete" x-transition.opacity class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="confirmDelete = null">
+    <div @click.outside="confirmDelete = null" class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-6">
+      <h3 class="text-lg font-bold">Delete todo?</h3>
+      <p class="mt-2 text-sm text-slate-600">“<span x-text="confirmDelete && confirmDelete.title"></span>” will be permanently removed.</p>
+      <div class="flex justify-end gap-2 mt-6">
+        <button type="button" @click="confirmDelete = null" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+        <button type="button" @click="deleteTodo(confirmDelete)" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────── Profile modal ───────────── -->
+  <div x-show="profile.open" x-transition.opacity class="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 p-4" @keydown.escape.window="profile.open = false">
+    <form @submit.prevent="saveProfile()" @click.outside="profile.open = false" class="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+      <h3 class="text-lg font-bold">Your profile</h3>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block">
+          <span class="text-sm font-medium text-slate-700">First name</span>
+          <input x-model="profile.first_name" required maxlength="100" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500">
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium text-slate-700">Last name</span>
+          <input x-model="profile.last_name" required maxlength="100" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-indigo-500">
+        </label>
+      </div>
+      <dl class="rounded-xl bg-slate-50 p-4 text-sm grid grid-cols-[auto_1fr] gap-x-4 gap-y-2" x-show="user">
+        <dt class="text-slate-500">Email</dt><dd class="font-medium break-all" x-text="user && user.email"></dd>
+        <dt class="text-slate-500">Registered</dt><dd x-text="user && fullDate(user.created_at)"></dd>
+        <dt class="text-slate-500">Last login</dt><dd x-text="user && (user.last_login_at ? fullDate(user.last_login_at) : 'Never')"></dd>
+        <dt class="text-slate-500">Last modified</dt><dd x-text="user && fullDate(user.updated_at)"></dd>
+      </dl>
+      <p x-show="profile.error" x-text="profile.error" class="rounded-lg bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700"></p>
+      <div class="flex justify-end gap-2">
+        <button type="button" @click="profile.open = false" class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100">Close</button>
+        <button type="submit" :disabled="busy" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">Save</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ───────────── Toasts ───────────── -->
+  <div class="fixed bottom-4 right-4 z-50 space-y-2 w-72">
+    <template x-for="t in toasts" :key="t.id">
+      <div x-transition class="rounded-lg px-4 py-3 text-sm shadow-lg text-white"
+           :class="t.kind === 'error' ? 'bg-rose-600' : 'bg-slate-900'" x-text="t.message"></div>
+    </template>
+  </div>
+</div>
+</body>
+</html>
